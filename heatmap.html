@@ -1,0 +1,335 @@
+<!-- <!DOCTYPE html>
+<html>
+<head>
+  <title>Google Maps Heatmap</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCH6zNUyuHkiV1t2OICZx0lnMGMEe1z-lI&libraries=visualization"></script>
+  <style>
+    #map {
+      height: 100vh; /* 全画面表示 */
+      width: 100%;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <label for="classFilter">Class ID:</label>
+    <input type="text" id="classFilter" placeholder="例: 0, 24, 39">
+    <button onclick="updateHeatmap()">更新</button>
+  </div>
+  <div id="map"></div>
+  <script>
+    let map;
+    let heatmap;
+    let allData = []; // 全データ保存用
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 34.6315, lng: 133.8815 }, // 初期位置（データの中心付近）
+        zoom: 15,
+      });
+
+      // CSVデータの読み込み
+      fetch("detected_images_log.csv")
+        .then(response => response.text())
+        .then(data => {
+          const rows = data.split("\n");
+          const bounds = new google.maps.LatLngBounds();
+
+          rows.forEach((row, index) => {
+            if (index === 0) return; // ヘッダーをスキップ
+            const cols = row.split(",");
+            if (cols.length < 10) return; // データが足りない場合スキップ
+
+            const objectLat = parseFloat(cols[6]); // Object Latitude
+            const objectLng = parseFloat(cols[7]); // Object Longitude
+            const classID = parseInt(cols[8]); // Class ID
+
+            if (!isNaN(objectLat) && !isNaN(objectLng) && !isNaN(classID)) {
+              allData.push({ lat: objectLat, lng: objectLng, classID: classID });
+              bounds.extend(new google.maps.LatLng(objectLat, objectLng));
+            }
+          });
+
+          // 初回ヒートマップ作成（全データ表示）
+          updateHeatmap();
+
+          // 地図をデータにフィット
+          map.fitBounds(bounds);
+        })
+        .catch(error => console.error("エラー:", error));
+    }
+
+    function updateHeatmap() {
+      const heatmapData = [];
+      const input = document.getElementById("classFilter").value;
+      const targetClassIDs = input.split(",").map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+      allData.forEach(point => {
+        if (targetClassIDs.length === 0 || targetClassIDs.includes(point.classID)) {
+          heatmapData.push(new google.maps.LatLng(point.lat, point.lng));
+        }
+      });
+
+      if (heatmap) {
+        heatmap.setMap(null); // 既存のヒートマップを削除
+      }
+
+      heatmap = new google.maps.visualization.HeatmapLayer({
+        data: heatmapData,
+        map: map,
+      });
+    }
+
+    window.onload = initMap;
+  </script>
+</body>
+</html> -->
+
+
+
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Google Maps ヒートマップ + 撮影領域外を灰色マスク</title>
+  <!-- geometry と visualization ライブラリを指定 -->
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCH6zNUyuHkiV1t2OICZx0lnMGMEe1z-lI&libraries=visualization,geometry"></script>
+  <style>
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      font-family: Arial, sans-serif;
+    }
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      left: 10px;
+      z-index: 100;
+      background: white;
+      padding: 10px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .legend-gradient {
+      width: 200px;
+      height: 20px;
+      background: linear-gradient(to right,
+        rgba(0, 255, 255, 0),
+        rgba(0, 255, 255, 1),
+        rgba(0, 191, 255, 1),
+        rgba(0, 127, 255, 1),
+        rgba(0, 63, 255, 1),
+        rgba(0, 0, 255, 1),
+        rgba(0, 0, 223, 1),
+        rgba(0, 0, 191, 1),
+        rgba(0, 0, 159, 1),
+        rgba(0, 0, 127, 1),
+        rgba(63, 0, 91, 1),
+        rgba(127, 0, 63, 1),
+        rgba(191, 0, 31, 1),
+        rgba(255, 0, 0, 1)
+      );
+      margin-bottom: 5px;
+    }
+    .legend-labels {
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <!-- コントロール部 -->
+  <div id="controls">
+    <label for="classFilter">Class ID:</label>
+    <input type="text" id="classFilter" placeholder="例: 0, 24, 39">
+    <button onclick="updateHeatmap()">更新</button>
+  </div>
+
+  <!-- 凡例 -->
+  <div id="legend">
+    <div class="legend-gradient"></div>
+    <div class="legend-labels">
+      <span>少ない</span>
+      <span>平均: 約13平方メートルに1個</span>
+      <span>多い</span>
+    </div>
+  </div>
+  
+  <div id="map"></div>
+
+  <script>
+    let map;
+    let heatmap;
+    let allData = [];    // ヒートマップ用データ (ゴミ検出座標, クラスID)
+    let polygons = [];   // 各画像の撮影エリア（四隅座標）
+    let maskPolygon;     // 撮影エリア外を塗りつぶすマスク用 Polygon
+
+    function initMap() {
+      map = new google.maps.Map(document.getElementById("map"), {
+        center: { lat: 34.6315, lng: 133.8815 },
+        zoom: 15,
+      });
+      
+      // CSV ファイルを読み込み
+      fetch("deduplicated_log.csv")
+        .then(response => response.text())
+        .then(data => {
+          const rows = data.split("\n");
+          let headerSkipped = false;
+
+          rows.forEach((row) => {
+            const cols = row.split(",");
+            // ヘッダー行をスキップ
+            if (!headerSkipped) {
+              headerSkipped = true;
+              return;
+            }
+            // 最低限のカラム数があるかチェック (例: 18列あればOK)
+            if (cols.length < 18) return;
+
+            // ゴミ検出用データ
+            const objectLat = parseFloat(cols[6]);
+            const objectLng = parseFloat(cols[7]);
+            const classID    = parseInt(cols[8]);
+
+            if (!isNaN(objectLat) && !isNaN(objectLng) && !isNaN(classID)) {
+              allData.push({ lat: objectLat, lng: objectLng, classID: classID });
+            }
+
+            // 画像の四隅座標
+            const tlLat = parseFloat(cols[10]);
+            const tlLng = parseFloat(cols[11]);
+            const trLat = parseFloat(cols[12]);
+            const trLng = parseFloat(cols[13]);
+            const brLat = parseFloat(cols[14]);
+            const brLng = parseFloat(cols[15]);
+            const blLat = parseFloat(cols[16]);
+            const blLng = parseFloat(cols[17]);
+
+            if (!isNaN(tlLat) && !isNaN(tlLng) &&
+                !isNaN(trLat) && !isNaN(trLng) &&
+                !isNaN(brLat) && !isNaN(brLng) &&
+                !isNaN(blLat) && !isNaN(blLng)) {
+              // 順番は (TL -> TR -> BR -> BL) と想定
+              const polyCoords = [
+                { lat: tlLat, lng: tlLng },
+                { lat: trLat, lng: trLng },
+                { lat: brLat, lng: brLng },
+                { lat: blLat, lng: blLng },
+              ];
+              polygons.push(polyCoords);
+            }
+          });
+
+          // ヒートマップを初期表示
+          updateHeatmap();
+
+          // 撮影エリア外を塗りつぶすマスクを作成
+          drawMask();
+        })
+        .catch(error => console.error("CSV読み込みエラー:", error));
+    }
+    
+    // ヒートマップの更新（Class ID によるフィルター適用）
+    function updateHeatmap() {
+      const heatmapData = [];
+      const input = document.getElementById("classFilter").value;
+      const targetClassIDs = input
+        .split(",")
+        .map(id => parseInt(id.trim()))
+        .filter(id => !isNaN(id));
+      
+      allData.forEach(point => {
+        if (targetClassIDs.length === 0 || targetClassIDs.includes(point.classID)) {
+          heatmapData.push(new google.maps.LatLng(point.lat, point.lng));
+        }
+      });
+      
+      if (heatmap) {
+        heatmap.setMap(null);
+      }
+      
+      heatmap = new google.maps.visualization.HeatmapLayer({
+        data: heatmapData,
+        map: map,
+      });
+    }
+
+    // 撮影領域外を灰色マスクにするための Polygon（穴あきポリゴン）を描画
+    function drawMask() {
+      // 全世界を覆う大きな外側の頂点 (南西->南東->北東->北西 順)
+      // ここでは極端に広い範囲を指定して世界地図をカバー
+      const outerCoords = [
+        { lat: -89.999, lng: -179.999 },
+        { lat: -89.999, lng: 179.999 },
+        { lat: 89.999,  lng: 179.999 },
+        { lat: 89.999,  lng: -179.999 }
+      ];
+
+      // マスク用ポリゴンを作成するための paths 配列
+      // paths[0] が外周、それ以降が穴（ホール）
+      const paths = [ outerCoords ];
+
+      // polygons に保存した各画像の四隅を「穴」として追加
+      // Google Maps の Polygon では、外周は反時計回り、穴は時計回りに指定するとよい
+      // ※ あるいは外周を時計回りにして、穴を反時計回りにする手もある
+      //   いずれかで外周と穴の回り方向が逆である必要があります
+
+      polygons.forEach((polyCoords) => {
+        // polyCoords は (TL -> TR -> BR -> BL)
+        // ここでは「時計回り」になるよう TR->TL->BL->BR などにする場合もあり
+        // 下記はあくまで例：四隅がすでに反時計 or 時計か要検証
+
+        // 例: 画像が (TL->TR->BR->BL) で「反時計回り」の場合、穴は逆にする必要がある
+        // ひとまず↓のように reverse() を試すか、順序を入れ替える
+        const reversed = [...polyCoords].reverse();
+
+        paths.push(reversed);
+      });
+
+      // すでに maskPolygon が存在すれば削除
+      if (maskPolygon) {
+        maskPolygon.setMap(null);
+      }
+
+      // Polygon オブジェクトを作成
+      maskPolygon = new google.maps.Polygon({
+        paths: paths,             // [外周, 穴1, 穴2, ...]
+        strokeColor: "#444444",
+        strokeOpacity: 0.3,
+        strokeWeight: 1,
+        fillColor: "gray",
+        fillOpacity: 0.1,
+        clickable: false
+      });
+
+      maskPolygon.setMap(map);
+    }
+    
+    window.onload = initMap;
+  </script>
+</body>
+</html>
